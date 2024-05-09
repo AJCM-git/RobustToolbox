@@ -90,21 +90,24 @@ namespace Robust.Shared.Containers
             {
                 public readonly string ContainerType; // TODO remove this. We dont have to send a whole string.
                 public readonly bool ShowContents;
+                public readonly bool VisuallyShowContents;
                 public readonly bool OccludesLight;
                 public readonly NetEntity[] ContainedEntities;
 
-                public ContainerData(string containerType, bool showContents, bool occludesLight, NetEntity[] containedEntities)
+                public ContainerData(string containerType, bool showContents, bool visuallyShowContents, bool occludesLight, NetEntity[] containedEntities)
                 {
                     ContainerType = containerType;
                     ShowContents = showContents;
+                    VisuallyShowContents = visuallyShowContents;
                     OccludesLight = occludesLight;
                     ContainedEntities = containedEntities;
                 }
 
-                public void Deconstruct(out string type, out bool showEnts, out bool occludesLight, out NetEntity[] ents)
+                public void Deconstruct(out string type, out bool showEnts, out bool visuallyShowEnts, out bool occludesLight, out NetEntity[] ents)
                 {
                     type = ContainerType;
                     showEnts = ShowContents;
+                    visuallyShowEnts = VisuallyShowContents;
                     occludesLight = OccludesLight;
                     ents = ContainedEntities;
                 }

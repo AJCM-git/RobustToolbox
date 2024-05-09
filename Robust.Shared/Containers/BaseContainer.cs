@@ -72,6 +72,14 @@ namespace Robust.Shared.Containers
         public bool ShowContents { get; set; }
 
         /// <summary>
+        /// Makes the contents appear visually and not in things like the verb menu.
+        /// Made for containers with things that we want to display only visually, like body parts.
+        /// </summary>
+        [ViewVariables(VVAccess.ReadWrite)]
+        [DataField]
+        public bool VisuallyShowContents;
+
+        /// <summary>
         /// Checks if the entity is contained in this container.
         /// This is not recursive, so containers of children are not checked.
         /// </summary>

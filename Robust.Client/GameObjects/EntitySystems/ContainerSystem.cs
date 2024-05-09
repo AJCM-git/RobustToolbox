@@ -1,11 +1,9 @@
-using System;
 using Robust.Shared.Collections;
 using Robust.Shared.Containers;
 using Robust.Shared.GameObjects;
 using Robust.Shared.GameStates;
 using Robust.Shared.IoC;
 using Robust.Shared.Map;
-using Robust.Shared.Network;
 using Robust.Shared.Utility;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -17,10 +15,10 @@ namespace Robust.Client.GameObjects
 {
     public sealed class ContainerSystem : SharedContainerSystem
     {
-        [Dependency] private readonly INetManager _netMan = default!;
         [Dependency] private readonly IRobustSerializer _serializer = default!;
         [Dependency] private readonly IDynamicTypeFactoryInternal _dynFactory = default!;
         [Dependency] private readonly PointLightSystem _lightSys = default!;
+        [Dependency] private readonly ContainerSystem _containerSystem = default!;
 
         private EntityQuery<PointLightComponent> _pointLightQuery;
         private EntityQuery<SpriteComponent> _spriteQuery;
@@ -126,6 +124,7 @@ namespace Robust.Client.GameObjects
 
                 DebugTools.Assert(container.ID == id);
                 container.ShowContents = data.ShowContents;
+                container.VisuallyShowContents = data.VisuallyShowContents;
                 container.OccludesLight = data.OccludesLight;
 
                 // Remove gone entities.
@@ -305,9 +304,10 @@ namespace Robust.Client.GameObjects
             while (parent.IsValid() && (!spriteOccluded || !lightOccluded))
             {
                 var parentXform = TransformQuery.GetComponent(parent);
-                if (TryComp<ContainerManagerComponent>(parent, out var manager) && manager.TryGetContainer(child, out var container))
+                if (TryComp<ContainerManagerComponent>(parent, out var manager) &&
+                    _containerSystem.TryGetContainingContainer(parent, child, out var container, manager))
                 {
-                    spriteOccluded = spriteOccluded || !container.ShowContents;
+                    spriteOccluded = spriteOccluded || container is { ShowContents: false, VisuallyShowContents: false };
                     lightOccluded = lightOccluded || container.OccludesLight;
                 }
 
@@ -346,9 +346,9 @@ namespace Robust.Client.GameObjects
                     var childLightOccluded = lightOccluded;
 
                     // We already know either sprite or light is not occluding so need to check container.
-                    if (manager.TryGetContainer(child, out var container))
+                    if (_containerSystem.TryGetContainingContainer(entity, child, out var container, manager))
                     {
-                        childSpriteOccluded = childSpriteOccluded || !container.ShowContents;
+                        childSpriteOccluded = childSpriteOccluded || container is { ShowContents: false, VisuallyShowContents: false };
                         childLightOccluded = childLightOccluded || container.OccludesLight;
                     }
 

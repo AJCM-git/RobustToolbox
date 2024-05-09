@@ -65,7 +65,7 @@ namespace Robust.Shared.Containers
                     uidArr[index] = GetNetEntity(container.ContainedEntities[index]);
                 }
 
-                var sContainer = new ContainerManagerComponent.ContainerManagerComponentState.ContainerData(container.GetType().Name, container.ShowContents, container.OccludesLight, uidArr);
+                var sContainer = new ContainerManagerComponent.ContainerManagerComponentState.ContainerData(container.GetType().Name, container.ShowContents, container.VisuallyShowContents, container.OccludesLight, uidArr);
                 containerSet.Add(container.ID, sContainer);
             }
 
