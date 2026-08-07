@@ -1205,12 +1205,12 @@ namespace Robust.Shared.GameObjects
 
         /// <inheritdoc/>
         public void CopyComponents(
-            Entity<IComponent> source,
+            EntityUid source,
             Entity<MetaDataComponent?> target,
             ISerializationContext? serContext = null,
             params IComponent[] sourceComponents)
         {
-            CopyComponents(source.Owner, target.Owner, target.Comp, serContext, sourceComponents);
+            CopyComponents(source, target.Owner, target.Comp, serContext, sourceComponents);
         }
 
         /// <inheritdoc/>
