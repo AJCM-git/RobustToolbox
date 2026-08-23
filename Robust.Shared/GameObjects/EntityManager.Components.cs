@@ -4,16 +4,19 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Threading;
 using JetBrains.Annotations;
 using Robust.Shared.GameStates;
-using Robust.Shared.Log;
+using Robust.Shared.IoC;
 using Robust.Shared.Physics.Components;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Serialization;
 using Robust.Shared.Serialization.Manager;
+using Robust.Shared.Serialization.Manager.Attributes;
+using Robust.Shared.Serialization.TypeSerializers.Interfaces;
 using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 #if EXCEPTION_TOLERANCE
@@ -1231,6 +1234,36 @@ namespace Robust.Shared.GameObjects
             {
                 CopyComponentInternal(source, target, comp, meta, serContext);
             }
+        }
+
+        public void testmethod()
+        {
+            var a = Spawn(null);
+            var b = Spawn(null);
+            Entity<MetaDataComponent> enta = new(a, AddComponent<MetaDataComponent>(a));
+            Entity<MetaDataComponent> entb = new(b, AddComponent<MetaDataComponent>(b));
+            CopyComponentContext ctx = new(_serManager)
+            {
+                ResettedDataFields = [nameof(MetaDataComponent.Deleted), nameof(MetaDataComponent.EntityDescription)],
+                Replaced = (entb, entb.Comp),
+                PreservedDataFields = [nameof(MetaDataComponent.EntityName)]
+            };
+            NewCopyComponent(enta, entb, ctx);
+        }
+
+        public T NewCopyComponent<T>(
+            Entity<T> source,
+            Entity<MetaDataComponent> target,
+            CopyComponentContext serContext) where T : IComponent
+        {
+            var compReg = ComponentFactory.GetRegistration(source.Comp.GetType());
+            var component = (T)ComponentFactory.GetComponent(compReg);
+
+            _serManager.CopyTo(source, ref component, notNullableOverride: true, context: serContext);
+            component.Owner = target;
+
+            AddComponentInternal(target, component, compReg, true, false, target.Comp);
+            return component;
         }
 
         private T CopyComponentInternal<T>(EntityUid source, EntityUid target, T sourceComponent, MetaDataComponent meta, ISerializationContext? serContext = null) where T : IComponent
@@ -3111,4 +3144,106 @@ namespace Robust.Shared.GameObjects
     }
 
     #endregion
+
+    /// TODO DONT YOU DARE MAKE A PR WITH THIS CRIME AGAINST SERIALIZATION WITHOUT TESTS
+    /// <summary>
+    /// Custom context that creates an exact copy of a component and then modifies the copy in certain ways if wanted.
+    /// </summary>
+    public sealed partial class CopyComponentContext :
+        ISerializationContext,
+        ITypeCopier<Component>
+    {
+        /// <inheritdoc />
+        /// Okay so my understandidng is that this provides you an empty "world"
+        /// that you can use to add custom serializers without them being applied globally
+        public SerializationManager.SerializerProvider SerializerProvider { get; }
+
+        /// <inheritdoc />
+        public bool WritingReadingPrototypes { get; set; }
+
+        /// TODO needs a better name, "resseted" doesnt really imply we are setting them to default
+        /// <summary>
+        /// DataFiels in the target whose value we want to set to default
+        /// </summary>
+        public string[] ResettedDataFields = [];
+
+        // TODO bundle these 2 in a record?
+        // Also i like passing the Entity<> but it may be better to just pass the component in the bundle if i do it
+        public Entity<IComponent> Replaced;
+        /// <summary>
+        /// DataFiels in the target that we want to preserve the state of after making the copy
+        /// </summary>
+        public string[] PreservedDataFields = [];
+
+        // TODO in this case is it better to feed the arrays and stuff in the constructor, delegate to a method or is fine as-is
+        public CopyComponentContext(ISerializationManager ser)
+        {
+            SerializerProvider = new(ser);
+            SerializerProvider.RegisterSerializer(this);
+        }
+
+        // TODO maybe can be made nicer with a serialization CopyFieldsTo or something
+        public void CopyTo(
+            ISerializationManager serializationManager,
+            Component sourceComponent,
+            ref Component newComponent,
+            IDependencyCollection dependencies,
+            SerializationHookContext hookCtx,
+            ISerializationContext? context = null)
+        {
+            // Do a full copy from source to the new target
+            serializationManager.CopyTo(sourceComponent, ref newComponent, notNullableOverride: true);
+
+            // Both of these arrays are fundamentally incompatible, check that they dont share any memember
+            if (ResettedDataFields.Any(val => PreservedDataFields.Contains(val)))
+                return;
+
+            var newCompType = newComponent.GetType();
+            for (var i = 0; i < ResettedDataFields.Length; i++)
+            {
+                // TODO scrutinize if we want to include non-public fields, also exception here
+                // TODO double check if the exception this throws when you put a wrong field is good enough by default
+                // reflectionextension variants lowkey better maybe??
+                if (newCompType.GetField(ResettedDataFields[i], BindingFlags.Public) is not { } newCompField ||
+                    !newCompField.HasCustomAttribute<DataFieldAttribute>() ||
+                    !newCompField.HasCustomAttribute<IncludeDataFieldAttribute>())
+                    return;
+
+                var defaultValue = newCompField.FieldType.IsValueType ? Activator.CreateInstance(newCompField.FieldType) : null;
+                newCompField.SetValue(newComponent, defaultValue);
+            }
+
+            var oldCompType = Replaced.Comp.GetType();
+            for (var i = 0; i < PreservedDataFields.Length; i++)
+            {
+                // TODO scrutinize if we want to include non-public fields, also exception here
+                // TODO double check if the exception this throws when you put a wrong field is good enough by default
+                if (oldCompType.GetField(PreservedDataFields[i], BindingFlags.Public) is not { } oldCompField ||
+                    !oldCompField.HasCustomAttribute<DataFieldAttribute>() ||
+                    !oldCompField.HasCustomAttribute<IncludeDataFieldAttribute>())
+                    return;
+
+                var oldCompFieldValue = oldCompField.GetValue(Replaced.Comp);
+                // Set the target field
+                oldCompField.SetValue(newComponent, oldCompFieldValue);
+            }
+
+            // Maybe we can do the switch again but making the context inherit this one
+            // and setting the fields and calling base at the end
+            // switch (target)
+            // {
+            //     case BloodstreamComponent bloodTarget:
+            //         ResettedDataFields = [
+            //         nameof(BloodstreamComponent.NextUpdate),
+            //         nameof(BloodstreamComponent.BleedAmount),
+            //         nameof(BloodstreamComponent.BloodData),
+            //         nameof(BloodstreamComponent.BloodSolution),
+            //         nameof(BloodstreamComponent.TemporarySolution),
+            //         nameof(BloodstreamComponent.MetabolitesSolution)]
+            //         break;
+            // }
+            // base.copyto(stuff)
+            // though theres prob a  noninheritance route that is cleaner
+        }
+    }
 }
